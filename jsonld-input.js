@@ -42,8 +42,8 @@ export function extractAuthentication(store) {
     namedNode('http://purl.org/pav/createdBy'),
   );
   return {
-    key: keys[0]?.value,
-    vendor: vendors[0]?.value,
-    organisation: organisations[0]?.value,
+    key: keys[0],
+    vendor: vendors[0],
+    organisation: organisations[0],
   };
 }

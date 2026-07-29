@@ -111,7 +111,7 @@ async function ensureAuthorisation(store) {
     const error = new Error(
       'Authentication failed, vendor does not have access to the organization or does not exist. If this should not be the case, please contact us at digitaalABB@vlaanderen.be for login credentials.',
     );
-    error.reference = authentication.vendor;
+    error.reference = authentication.vendor.value;
     throw error;
   }
   return organisationID;

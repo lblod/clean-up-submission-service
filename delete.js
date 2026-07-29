@@ -2,22 +2,13 @@ import { sparqlEscapeString, sparqlEscapeUri, query, update } from 'mu';
 import { querySudo, updateSudo } from '@lblod/mu-auth-sudo';
 import { deleteFile } from './file-helpers';
 import { SparqlJsonParser } from 'sparqljson-parse';
-import * as env from 'env-var';
-
-const GRAPH_TEMPLATE = env
-  .get('GRAPH_TEMPLATE')
-  .example(
-    'http://mu.semte.ch/graphs/organizations/~ORGANIZATION_ID~/LoketLB-toezichtGebruiker',
-  )
-  .default(
-    'http://mu.semte.ch/graphs/organizations/~ORGANIZATION_ID~/LoketLB-toezichtGebruiker',
-  )
-  .asUrlString();
+import * as env from './env';
+import * as rst from 'rdf-string-ttl';
 
 (function checkEnvVars() {
-  if (!/~ORGANIZATION_ID~/g.test(GRAPH_TEMPLATE))
+  if (!/~ORGANIZATION_ID~/g.test(env.GRAPH_TEMPLATE))
     throw new Error(
-      `The GRAPH_TEMPLATE environment variable ${GRAPH_TEMPLATE} does not contain a ~ORGANIZATION_ID~.`,
+      `The GRAPH_TEMPLATE environment variable ${env.GRAPH_TEMPLATE} does not contain a ~ORGANIZATION_ID~.`,
     );
 })();
 
@@ -61,7 +52,7 @@ export async function deleteSubmission(uuid, reqState) {
     uuid,
     canUseSudo,
   );
-  const submissionGraph = GRAPH_TEMPLATE.replace(
+  const submissionGraph = env.GRAPH_TEMPLATE.replace(
     '~ORGANIZATION_ID~',
     organisationId,
   );
@@ -129,7 +120,7 @@ async function getUuid(uri, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
     PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
     SELECT DISTINCT ?uuid WHERE {
-      ${sparqlEscapeUri(uri)} mu:uuid ?uuid .
+      ${rst.termToString(uri)} mu:uuid ?uuid .
     } LIMIT 1
   `);
   const parser = new SparqlJsonParser();
@@ -475,5 +466,7 @@ async function getOrganisationIdFromSubmission(submissionUuid, canUseSudo) {
     }
     LIMIT 1
   `);
-  return response?.results?.bindings[0]?.organisationId?.value;
+  const parser = new SparqlJsonParser();
+  const parsedResults = parser.parseJsonResults(response);
+  return parsedResults[0]?.organisationId?.value;
 }
