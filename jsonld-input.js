@@ -9,21 +9,17 @@ export function enrichBodyForDelete(body) {
   }
   const requestId = uuid();
   if (!body['@id'])
-    body[
-      '@id'
-    ] = `http://data.lblod.info/submission-delete-request/${requestId}`;
+    body['@id'] =
+      `http://data.lblod.info/submission-delete-request/${requestId}`;
   if (!body['@type'])
     body['@type'] = 'http://data.lblod.info/submission-delete-request/Request';
   if (body.authentication) {
-    body.authentication[
-      '@id'
-    ] = `http://data.lblod.info/authentications/${uuid()}`;
-    body.authentication.configuration[
-      '@id'
-    ] = `http://data.lblod.info/configurations/${uuid()}`;
-    body.authentication.credentials[
-      '@id'
-    ] = `http://data.lblod.info/credentials/${uuid()}`;
+    body.authentication['@id'] =
+      `http://data.lblod.info/authentications/${uuid()}`;
+    body.authentication.configuration['@id'] =
+      `http://data.lblod.info/configurations/${uuid()}`;
+    body.authentication.credentials['@id'] =
+      `http://data.lblod.info/credentials/${uuid()}`;
   }
   return body;
 }

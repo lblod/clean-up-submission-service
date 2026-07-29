@@ -92,13 +92,11 @@ function ensureValidContentType(contentType) {
 
 async function ensureAuthorisation(store) {
   const authentication = jli.extractAuthentication(store);
-  if (
-    !(
-      authentication.vendor &&
-      authentication.key &&
-      authentication.organisation
-    )
-  )
+  if (!(
+    authentication.vendor &&
+    authentication.key &&
+    authentication.organisation
+  ))
     throw new Error(
       'The authentication (or part of it) for this request is missing. Make sure to supply publisher (with vendor URI and key) and organization information to the request.',
     );
