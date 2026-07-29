@@ -46,17 +46,17 @@ app.post('/delete-melding', async function (req, res) {
 
     await ensureAuthorisation(store);
 
-    const submissionUris = store.getObjects(
+    const submissionDocumentUris = store.getObjects(
       undefined,
       namedNode('http://purl.org/dc/terms/subject'),
     );
-    const submissionUri = submissionUris[0]?.value;
-    if (!submissionUri)
+    const submissionDocument = submissionDocumentUris[0];
+    if (!submissionDocument)
       throw new Error('There was no submission URI in the request');
 
     const reqState = { canUseSudo: true };
-    const { message, error } = await del.deleteSubmissionViaUri(
-      submissionUri,
+    const { message, error } = await del.deleteSubmissionViaDocumentUri(
+      submissionDocument,
       reqState,
     );
     if (error) {

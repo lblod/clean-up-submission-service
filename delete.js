@@ -31,9 +31,16 @@ const ADDITIONS_FILE_TYPE =
 const REMOVALS_FILE_TYPE = 'http://data.lblod.gift/concepts/removals-file-type';
 const META_FILE_TYPE = 'http://data.lblod.gift/concepts/meta-file-type';
 
-export async function deleteSubmissionViaUri(uri, reqState) {
-  const uuid = await getSubmissionUuid(uri, reqState?.canUseSudo);
-  return deleteSubmission(uuid, reqState);
+export async function deleteSubmissionViaDocumentUri(documentUri, reqState) {
+  const submissionForDocument = await getSubmissionByDocumentUri(
+    documentUri,
+    reqState?.canUseSudo,
+  );
+  const submissionUuid = await getUuid(
+    submissionForDocument,
+    reqState?.canUseSudo,
+  );
+  return deleteSubmission(submissionUuid, reqState);
 }
 
 /**
@@ -118,7 +125,7 @@ export async function deleteSubmission(uuid, reqState) {
  * Private
  */
 
-async function getSubmissionUuid(uri, canUseSudo) {
+async function getUuid(uri, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
     PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
     SELECT DISTINCT ?uuid WHERE {
@@ -437,6 +444,21 @@ async function getSubmissionById(submissionId, graph, canUseSudo) {
       taskURI: firstResult?.submissionTask?.value,
     };
   }
+}
+
+async function getSubmissionByDocumentUri(submissionDocumentUri, canUseSudo) {
+  const response = await (canUseSudo ? querySudo : query)(`
+    ${env.SPARQL_PREFIXES}
+
+    SELECT DISTINCT ?submission WHERE {
+      ?submission
+        dct:subject ${rst.termToString(submissionDocumentUri)} .
+    }
+    LIMIT 1
+  `);
+  const parser = new SparqlJsonParser();
+  const parsedResults = parser.parseJsonResults(response);
+  return parsedResults[0]?.submission;
 }
 
 async function getOrganisationIdFromSubmission(submissionUuid, canUseSudo) {
