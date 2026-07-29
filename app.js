@@ -102,7 +102,7 @@ async function ensureAuthorisation(store) {
     throw new Error(
       'The authentication (or part of it) for this request is missing. Make sure to supply publisher (with vendor URI and key) and organization information to the request.',
     );
-  const organisationID = await auth.verifyKeyAndOrganisation(
+  const organisationID = await auth.verifyVendorKeyAndOrganisation(
     authentication.vendor,
     authentication.key,
     authentication.organisation,
