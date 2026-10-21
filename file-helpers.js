@@ -1,37 +1,32 @@
-import { sparqlEscapeUri, update } from 'mu';
+import { update } from 'mu';
 import { updateSudo } from '@lblod/mu-auth-sudo';
 import fs from 'fs/promises';
+import * as rst from 'rdf-string-ttl';
 
 /**
  * Deletes a file in the triplestore and on disk
  */
-export async function deleteFile(uri, graph, canUseSudo) {
-  const path = uri.replace('share://', '/share/');
+export async function deleteFile(file, graph, canUseSudo) {
+  const path = file.value.replace('share://', '/share/');
 
   try {
     await fs.unlink(path);
   } catch (e) {
-    console.log(`Failed to delete file <${uri}> on disk: \n ${e}`);
-    throw e;
+    console.log(
+      `Failed to delete file ${rst.termToString(file)} on disk, but continuing anyways: \n ${e}.`,
+    );
   }
 
   try {
     await (canUseSudo ? updateSudo : update)(`
-      PREFIX nfo: <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#>
-      PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>
-      PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-      PREFIX dct: <http://purl.org/dc/terms/>
-      PREFIX dbpedia: <http://dbpedia.org/ontology/>
-      PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-
       DELETE WHERE {
-        GRAPH ${sparqlEscapeUri(graph)} {
-          ${sparqlEscapeUri(uri)} ?p ?o .
+        GRAPH ${rst.termToString(graph)} {
+          ${rst.termToString(file)} ?p ?o .
         }
       }`);
   } catch (e) {
     console.log(
-      `Failed to delete TTL resource <${uri}> in triplestore: \n ${e}`,
+      `Failed to delete TTL resource ${rst.termToString(file)} in triplestore: \n ${e}`,
     );
     throw e;
   }

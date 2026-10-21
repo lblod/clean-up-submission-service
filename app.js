@@ -7,10 +7,11 @@ import * as jli from './jsonld-input';
 import * as err from './error';
 import * as errcon from './ErrorContexts';
 import * as N3 from 'n3';
-const { namedNode, literal, blankNode } = N3.DataFactory;
+const { literal, blankNode } = N3.DataFactory;
+import { NAMESPACES as ns } from './env';
 
 app.get('/', function (req, res) {
-  res.send('Hello clean-up-submission-service');
+  res.send('Hello from clean-up-submission-service');
 });
 
 app.use(bodyParser.json({ type: 'application/ld+json' }));
@@ -18,19 +19,18 @@ app.use(bodyParser.json());
 app.use(errorHandler);
 
 app.delete('/submissions/:uuid', async function (req, res) {
-  const uuid = req.params.uuid;
+  const uuid = literal(req.params.uuid);
   console.log(
-    `Received request to delete submission-document with uuid '${uuid}'`,
+    `Received request to delete submission-document with uuid '${uuid.value}'`,
   );
   try {
     const reqState = { canUseSudo: false };
-    const { message, error } = await del.deleteSubmission(uuid, reqState);
-    if (error) {
-      return res.status(error.status).send({ error: error.message });
-    }
+    const submission = await del.getSubmissionByUUID(uuid, reqState.canUseSudo);
+    const { message, error } = await del.deleteSubmission(submission, reqState);
+    if (error) return res.status(error.status).send({ error: error.message });
     return res.status(200).send(message);
   } catch (e) {
-    const message = `Something unexpected went wrong while deleting submission-document with uuid '${uuid}'`;
+    const message = `Something unexpected went wrong while deleting submission with uuid '${uuid}'`;
     console.log(message);
     console.error(e);
     await err.sendErrorAlert({ message, detail: e.message });
@@ -40,25 +40,48 @@ app.delete('/submissions/:uuid', async function (req, res) {
 
 app.post('/delete-melding', async function (req, res) {
   try {
+    const reqState = { canUseSudo: true };
     await ensureValidContentType(req.get('content-type'));
     const enrichedBody = await jli.enrichBodyForDelete(req.body);
     const store = await jsonLdToStore(enrichedBody);
+    store.forEach((quad) =>
+      console.log(quad.subject.value, quad.predicate.value, quad.object.value),
+    );
 
     await ensureAuthorisation(store);
 
-    const submissionDocumentUris = store.getObjects(
-      undefined,
-      namedNode('http://purl.org/dc/terms/subject'),
-    );
-    const submissionDocument = submissionDocumentUris[0];
-    if (!submissionDocument)
-      throw new Error('There was no submission URI in the request');
+    const submissionDocument = store.getObjects(undefined, ns.dct`subject`)[0];
+    let submission = store.getSubjects(ns.rdf`type`, ns.meb`Submission`)[0];
+    if (submission.termType === 'BlankNode') submission = undefined;
 
-    const reqState = { canUseSudo: true };
-    const { message, error } = await del.deleteSubmissionViaDocumentUri(
-      submissionDocument,
-      reqState,
-    );
+    if (!(submissionDocument || submission))
+      throw new Error(
+        'There was no Submission or SubmissionDocument URI in the request',
+      );
+
+    // We want the Submission, so convert from the SubmissionDocument.
+    if (submissionDocument) {
+      const submissionForDocument = await del.getSubmissionByDocument(
+        submissionDocument,
+        reqState.canUseSudo,
+      );
+      if (!submissionForDocument)
+        throw new Error(
+          'A Submission could not be found related to the given SubmissionDocument',
+        );
+      // If both were given in the request, at least make sure they match.
+      if (submission && submission.value !== submissionForDocument.value) {
+        throw new Error(
+          'The given Submission and SubmissionDocument do not match. These refer to different submissions.',
+        );
+      }
+      submission = submissionForDocument;
+    }
+
+    // TODO: implement
+    // await vendorOwnsSubmission(submission);
+
+    const { message, error } = await del.deleteSubmission(submission, reqState);
     if (error) {
       res.status(error.status || 500);
       const errorStore = errorToStore(error);
