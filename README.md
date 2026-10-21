@@ -50,40 +50,52 @@ Return values:
 
 ### POST /delete-melding
 
-Deletes/cleans-up the given submission using the same API as the
-`automatic-submission-service`. This is meant for vendors.
+This is meant for vendors using the Meldingsplicht API. Deletes/cleans-up the
+given submission using the same API as the `automatic-submission-service`, but
+some properties are not needed. Below is a minimal request for deleting a
+Submission, where the Submission URI is supplied via the property `submission`.
 
-An example plucked from the documentation on the `automatic-submission-service`:
-
-```sh
+```bash
 curl -X POST \
   --url http://remove-submission/delete-melding \
   --header 'accept: application/json' \
   --header 'content-type: application/json' \
   --data '
 {
-  "href": "http://raadpleegomgeving.tielt-winge.be/90283409812734",
-  "authentication":{
-    "configuration": {
-      "scheme": "oauth2",
-      "flow": "client",
-      "resource": "private",
-      "token": "https://example.com/oauth2/access/tokenserver"
-    },
-    "credentials": {
-      "clientId": "foo",
-      "clientSecret": "bar"
-    }
-  },
   "organization": "http://data.lblod.info/id/bestuurseenheden/2498239",
   "publisher": {
-    "uri": "http://data.lblod.info/vendors/cipal-schaubroeck",
-    "key": "AE86-GT86"
+    "uri": "http://data.lblod.info/vendors/acme",
+    "key": "secret"
   },
-  "status": "http://lblod.data.gift/concepts/f6330856-e261-430f-b949-8e510d20d0ff",
-  "submittedResource": "http://data.tielt-winge.be/besluiten/2398230"
+  "submission": "http://data.lblod.info/submission/45687564oeu789"
 }
+'
 ```
+
+It is also possible to delete a Submission by giving the SubmissionDocument
+instead. This also follows the same RDF context as with the
+`automatic-submission-service`. Supply the SubmissionDocument via the property
+`submittedResource`, as seen below.
+
+```bash
+curl -X POST \
+  --url http://remove-submission/delete-melding \
+  --header 'accept: application/json' \
+  --header 'content-type: application/json' \
+  --data '
+{
+  "organization": "http://data.lblod.info/id/bestuurseenheden/2498239",
+  "publisher": {
+    "uri": "http://data.lblod.info/vendors/acme",
+    "key": "secret"
+  },
+  "submittedResource": "http://data.zonnedorp.be/besluiten/2398230"
+}
+'
+```
+
+If both `submission` and `submittedResource` are given, then they need to be
+related to each other. If not, an error is thrown.
 
 Return values:
 
