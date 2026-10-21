@@ -9,6 +9,11 @@ export function enrichBodyForDelete(body) {
     body['@context'] = SubmissionRegistrationContext;
   }
   if (!body['@type']) body['@type'] = ns.meb`Submission`.value;
+  // This is a trick. The requests should represent the Submission itself, but
+  // that would mean the user has to include
+  //   "@id": "http://uri/of/the/submission"
+  // and that is not so user friendly. So we allow the submission to be set
+  // with property `submission`, and we will make this correct ourselves.
   if (body.submission) {
     body['@id'] = body.submission;
     delete body.submission;

@@ -31,6 +31,17 @@ const META_FILE_TYPE = namedNode(
   'http://data.lblod.gift/concepts/meta-file-type',
 );
 
+/**
+ * Delete an entire Submission by supplying the SubmissionDocument.
+ *
+ * @public
+ * @async
+ * @function
+ * @param {NamedNode} document - The SubmissionDocument of which the Submission
+ * is to be deleted.
+ * @param {Object} reqState - Request information.
+ * @returns {Object} See `deleteSubmission`
+ */
 export async function deleteSubmissionViaDocument(document, reqState) {
   const submissionForDocument = await getSubmissionByDocument(
     document,
@@ -46,10 +57,11 @@ export async function deleteSubmissionViaDocument(document, reqState) {
  * @public
  * @async
  * @function
- * @param {String} uuid - The UUID of the submission-document to be deleted.
- * @returns {Object} Object with optional `message` (string), `uri` (string)
- * and `error` (object). The `error` is a JavaScrip Error object and has
- * `status` (integer) and `message` (string) properties.
+ * @param {NamedNode} submission - The Submission to be deleted.
+ * @param {Object} reqState - Request information.
+ * @returns {Object} Object with optional `message` (string), and `error`
+ * (object). The `error` is a JavaScrip Error object and has `status` (integer)
+ * and `message` (string) properties.
  */
 export async function deleteSubmission(submission, reqState) {
   const canUseSudo = reqState?.canUseSudo;
@@ -106,10 +118,73 @@ export async function deleteSubmission(submission, reqState) {
   };
 }
 
+/**
+ * Retrieve the Submission for the given UUID.
+ * @public
+ * @async
+ * @function
+ * @param {Literal} uuid - UUID of a Submission.
+ * @param {NamedNode} graph - Optional graph in which to limit the search.
+ * @param {Boolean} canUseSudo - Indicates if sudo queries are allowed.
+ * @returns {NamedNode} Submission.
+ */
+export async function getSubmissionByUUID(uuid, graph, canUseSudo) {
+  const graphSparql = graph ? rst.termToString(graph) : '?g';
+  const infoQuery = `
+    ${env.SPARQL_PREFIXES}
+
+    SELECT DISTINCT ?submission
+    WHERE {
+      GRAPH ${graphSparql} {
+        ?submission
+          a meb:Submission ;
+          mu:uuid ${rst.termToString(uuid)} .
+      }
+    } LIMIT 1`;
+
+  const response = await (canUseSudo ? querySudo : query)(infoQuery);
+  const parser = new SparqlJsonParser();
+  const parsedResults = parser.parseJsonResults(response);
+  if (parsedResults.length > 0) {
+    const firstResult = parsedResults[0];
+    return firstResult.submission;
+  }
+}
+
+/**
+ * Get the Submission linked to the given SubmissionDocument.
+ *
+ * @public
+ * @async
+ * @function
+ * @param {NamedNode} submissionDocument - SubmissionDocument for wich to find
+ * the related Submission.
+ * @param {Boolean} canUseSudo - Indicates if sudo queries are allowed.
+ * @returns {NamedNode} Submission.
+ */
+export async function getSubmissionByDocument(submissionDocument, canUseSudo) {
+  const response = await (canUseSudo ? querySudo : query)(`
+    ${env.SPARQL_PREFIXES}
+
+    SELECT DISTINCT ?submission WHERE {
+      ?submission
+        dct:subject ${rst.termToString(submissionDocument)} .
+    }
+    LIMIT 1
+  `);
+  const parser = new SparqlJsonParser();
+  const parsedResults = parser.parseJsonResults(response);
+  return parsedResults[0]?.submission;
+}
+
 /*
  * Private
  */
 
+/**
+ * Deletes the downloaded files related to that Submission (i.e. attachments,
+ * etc.).
+ */
 async function deleteHarvestedFiles(submission, graph, canUseSudo) {
   const files = await getHarvestedFiles(submission, graph, canUseSudo);
   for (const file of files) {
@@ -124,8 +199,6 @@ async function deleteHarvestedFiles(submission, graph, canUseSudo) {
 
 /**
  * Deletes all the linked files for the given resource.
- *
- * @param uri of the resource to delete the linked files for
  */
 async function deleteUploadedFiles(subject, graph, canUseSudo) {
   const files = await getUploadedFiles(subject, graph, canUseSudo);
@@ -138,8 +211,6 @@ async function deleteUploadedFiles(subject, graph, canUseSudo) {
 
 /**
  * Deletes all the linked ttl files for the given URI (submission-document).
- *
- * @param uri resource (submission-document) to delete the linked ttl files for
  */
 async function deleteLinkedTTLFiles(submissionDocument, graph, canUseSudo) {
   const additionsFile = await getTTLResource(
@@ -187,8 +258,6 @@ async function deleteLinkedTTLFiles(submissionDocument, graph, canUseSudo) {
 
 /**
  * Retrieves all the uploaded files linked to the given resource (form-data).
- *
- * @param uri of the resource.
  */
 async function getUploadedFiles(subject, graph, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
@@ -220,8 +289,6 @@ async function getUploadedFiles(subject, graph, canUseSudo) {
 
 /**
  * Retrieves all the uploaded files linked to the given resource (submission).
- *
- * @param uri of the resource.
  */
 async function getHarvestedFiles(submission, graph, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
@@ -264,10 +331,8 @@ async function getHarvestedFiles(submission, graph, canUseSudo) {
 }
 
 /**
- * Get the file resource in the triplestore of the given file type that is related to the given submission document
- *
- * @param {string} submissionDocument URI of the submitted document to get the related file for
- * @param {string} fileType URI of the type of the related file
+ * Get the file resource in the triplestore of the given file type that is
+ * related to the given submission document
  */
 async function getTTLResource(submissionDocument, fileType, graph, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
@@ -299,9 +364,7 @@ async function getTTLResource(submissionDocument, fileType, graph, canUseSudo) {
 }
 
 /**
- * Delete submission resource
- *
- * @param {string} URI of the resource to delete the related files for
+ * Delete given resource and its triples.
  */
 async function deleteResource(subject, graph, canUseSudo) {
   return (canUseSudo ? updateSudo : update)(`
@@ -318,6 +381,9 @@ async function deleteResource(subject, graph, canUseSudo) {
   `);
 }
 
+/**
+ * Delete the given Task and related Job.
+ */
 async function deleteTaskwithJob(task, graph, canUseSudo) {
   return (canUseSudo ? updateSudo : update)(`
     ${env.SPARQL_PREFIXES}
@@ -365,6 +431,10 @@ async function deleteTaskwithJob(task, graph, canUseSudo) {
   `);
 }
 
+/**
+ * Return an object with information and related subjects of the given
+ * submission.
+ */
 async function getSubmissionInfo(submission, graph, canUseSudo) {
   const infoQuery = `
     ${env.SPARQL_PREFIXES}
@@ -412,44 +482,9 @@ async function getSubmissionInfo(submission, graph, canUseSudo) {
   }
 }
 
-export async function getSubmissionByUUID(uuid, graph, canUseSudo) {
-  const graphSparql = graph ? rst.termToString(graph) : '?g';
-  const infoQuery = `
-    ${env.SPARQL_PREFIXES}
-
-    SELECT DISTINCT ?submission
-    WHERE {
-      GRAPH ${graphSparql} {
-        ?submission
-          a meb:Submission ;
-          mu:uuid ${rst.termToString(uuid)} .
-      }
-    } LIMIT 1`;
-
-  const response = await (canUseSudo ? querySudo : query)(infoQuery);
-  const parser = new SparqlJsonParser();
-  const parsedResults = parser.parseJsonResults(response);
-  if (parsedResults.length > 0) {
-    const firstResult = parsedResults[0];
-    return firstResult.submission;
-  }
-}
-
-export async function getSubmissionByDocument(submissionDocument, canUseSudo) {
-  const response = await (canUseSudo ? querySudo : query)(`
-    ${env.SPARQL_PREFIXES}
-
-    SELECT DISTINCT ?submission WHERE {
-      ?submission
-        dct:subject ${rst.termToString(submissionDocument)} .
-    }
-    LIMIT 1
-  `);
-  const parser = new SparqlJsonParser();
-  const parsedResults = parser.parseJsonResults(response);
-  return parsedResults[0]?.submission;
-}
-
+/**
+ * Retrieve the organisation UUID that is related to the Submission.
+ */
 async function getOrganisationIdFromSubmission(submission, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
     ${env.SPARQL_PREFIXES}
