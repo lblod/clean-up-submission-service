@@ -78,9 +78,6 @@ app.post('/delete-melding', async function (req, res) {
       submission = submissionForDocument;
     }
 
-    // TODO: implement
-    // await vendorOwnsSubmission(submission);
-
     const { message, error } = await del.deleteSubmission(submission, reqState);
     if (error) {
       res.status(error.status || 500);
