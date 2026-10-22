@@ -49,7 +49,7 @@ app.post('/delete-melding', async function (req, res) {
 
     const submissionDocument = store.getObjects(undefined, ns.dct`subject`)[0];
     let submission = store.getSubjects(ns.rdf`type`, ns.meb`Submission`)[0];
-    if (submission.termType === 'BlankNode') submission = undefined;
+    if (submission?.termType === 'BlankNode') submission = undefined;
 
     if (!(submissionDocument || submission))
       throw new Error(
