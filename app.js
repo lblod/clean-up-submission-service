@@ -44,9 +44,6 @@ app.post('/delete-melding', async function (req, res) {
     await ensureValidContentType(req.get('content-type'));
     const enrichedBody = await jli.enrichBodyForDelete(req.body);
     const store = await jsonLdToStore(enrichedBody);
-    store.forEach((quad) =>
-      console.log(quad.subject.value, quad.predicate.value, quad.object.value),
-    );
 
     await ensureAuthorisation(store);
 
