@@ -1,24 +1,26 @@
 import { updateSudo } from '@lblod/mu-auth-sudo';
-import {
-  uuid,
-  sparqlEscapeString,
-  sparqlEscapeDateTime,
-  sparqlEscapeUri,
-} from 'mu';
+import { uuid } from 'mu';
+import { NAMESPACES as ns } from './env';
+import * as rst from 'rdf-string-ttl';
+import * as N3 from 'n3';
+const { namedNode, literal } = N3.DataFactory;
 
-const CREATOR = 'http://lblod.data.gift/services/clean-up-submission-service';
+const CREATOR = namedNode(
+  'http://lblod.data.gift/services/clean-up-submission-service',
+);
 
 export async function sendErrorAlert({ message, detail, reference }) {
   if (!message) throw 'Error needs a message describing what went wrong.';
-  const id = uuid();
-  const uri = `http://data.lblod.info/errors/${id}`;
+  const currentTime = literal(new Date().toISOString(), ns.xsd`dateTime`);
+  const id = literal(uuid());
+  const errorSubject = namedNode(`http://data.lblod.info/errors/${id.value}`);
   const referenceTriple = reference
-    ? `${sparqlEscapeUri(uri)}
-         dct:references ${sparqlEscapeUri(reference)} .`
+    ? `${rst.termToString(errorSubject)}
+         dct:references ${rst.termToString(reference)} .`
     : '';
   const detailTriple = detail
-    ? `${sparqlEscapeUri(uri)}
-         oslc:largePreview ${sparqlEscapeString(detail)} .`
+    ? `${rst.termToString(errorSubject)}
+         oslc:largePreview ${rst.termToString(literal(detail))} .`
     : '';
   const q = `
     PREFIX mu:   <http://mu.semte.ch/vocabularies/core/>
@@ -28,20 +30,20 @@ export async function sendErrorAlert({ message, detail, reference }) {
     
     INSERT DATA {
       GRAPH <http://mu.semte.ch/graphs/error> {
-        ${sparqlEscapeUri(uri)}
+        ${rst.termToString(errorSubject)}
           a oslc:Error ;
-          mu:uuid ${sparqlEscapeString(id)} ;
-          dct:subject ${sparqlEscapeString('Automatic Submission Service')} ;
-          oslc:message ${sparqlEscapeString(message)} ;
-          dct:created ${sparqlEscapeDateTime(new Date().toISOString())} ;
-          dct:creator ${sparqlEscapeUri(CREATOR)} .
+          mu:uuid ${rst.termToString(id)} ;
+          dct:subject ${rst.termToString(literal('Cleanup Submission Service'))} ;
+          oslc:message ${rst.termToString(literal(message))} ;
+          dct:created ${rst.termToString(currentTime)} ;
+          dct:creator ${rst.termToString(CREATOR)} .
         ${referenceTriple}
         ${detailTriple}
       }
     }`;
   try {
     await updateSudo(q);
-    return uri;
+    return errorSubject;
   } catch (e) {
     console.warn(
       `[WARN] Something went wrong while trying to store an error.\nMessage: ${e}\nQuery: ${q}`,

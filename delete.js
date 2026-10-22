@@ -1,9 +1,11 @@
-import { sparqlEscapeString, sparqlEscapeUri, query, update } from 'mu';
+import { query, update } from 'mu';
 import { querySudo, updateSudo } from '@lblod/mu-auth-sudo';
 import { deleteFile } from './file-helpers';
 import { SparqlJsonParser } from 'sparqljson-parse';
 import * as env from './env';
 import * as rst from 'rdf-string-ttl';
+import * as N3 from 'n3';
+const { namedNode } = N3.DataFactory;
 
 (function checkEnvVars() {
   if (!/~ORGANIZATION_ID~/g.test(env.GRAPH_TEMPLATE))
@@ -12,26 +14,40 @@ import * as rst from 'rdf-string-ttl';
     );
 })();
 
-const SENT_STATUS =
-  'http://lblod.data.gift/concepts/9bd8d86d-bb10-4456-a84e-91e9507c374c';
+const SENT_STATUS = namedNode(
+  'http://lblod.data.gift/concepts/9bd8d86d-bb10-4456-a84e-91e9507c374c',
+);
 
-const FORM_DATA_FILE_TYPE =
-  'http://data.lblod.gift/concepts/form-data-file-type';
-const ADDITIONS_FILE_TYPE =
-  'http://data.lblod.gift/concepts/additions-file-type';
-const REMOVALS_FILE_TYPE = 'http://data.lblod.gift/concepts/removals-file-type';
-const META_FILE_TYPE = 'http://data.lblod.gift/concepts/meta-file-type';
+const FORM_DATA_FILE_TYPE = namedNode(
+  'http://data.lblod.gift/concepts/form-data-file-type',
+);
+const ADDITIONS_FILE_TYPE = namedNode(
+  'http://data.lblod.gift/concepts/additions-file-type',
+);
+const REMOVALS_FILE_TYPE = namedNode(
+  'http://data.lblod.gift/concepts/removals-file-type',
+);
+const META_FILE_TYPE = namedNode(
+  'http://data.lblod.gift/concepts/meta-file-type',
+);
 
-export async function deleteSubmissionViaDocumentUri(documentUri, reqState) {
-  const submissionForDocument = await getSubmissionByDocumentUri(
-    documentUri,
+/**
+ * Delete an entire Submission by supplying the SubmissionDocument.
+ *
+ * @public
+ * @async
+ * @function
+ * @param {NamedNode} document - The SubmissionDocument of which the Submission
+ * is to be deleted.
+ * @param {Object} reqState - Request information.
+ * @returns {Object} See `deleteSubmission`
+ */
+export async function deleteSubmissionViaDocument(document, reqState) {
+  const submissionForDocument = await getSubmissionByDocument(
+    document,
     reqState?.canUseSudo,
   );
-  const submissionUuid = await getUuid(
-    submissionForDocument,
-    reqState?.canUseSudo,
-  );
-  return deleteSubmission(submissionUuid, reqState);
+  return deleteSubmission(submissionForDocument, reqState);
 }
 
 /**
@@ -41,95 +57,136 @@ export async function deleteSubmissionViaDocumentUri(documentUri, reqState) {
  * @public
  * @async
  * @function
- * @param {String} uuid - The UUID of the submission-document to be deleted.
- * @returns {Object} Object with optional `message` (string), `uri` (string)
- * and `error` (object). The `error` is a JavaScrip Error object and has
- * `status` (integer) and `message` (string) properties.
+ * @param {NamedNode} submission - The Submission to be deleted.
+ * @param {Object} reqState - Request information.
+ * @returns {Object} Object with optional `message` (string), and `error`
+ * (object). The `error` is a JavaScrip Error object and has `status` (integer)
+ * and `message` (string) properties.
  */
-export async function deleteSubmission(uuid, reqState) {
+export async function deleteSubmission(submission, reqState) {
   const canUseSudo = reqState?.canUseSudo;
   const organisationId = await getOrganisationIdFromSubmission(
-    uuid,
+    submission,
     canUseSudo,
   );
-  const submissionGraph = env.GRAPH_TEMPLATE.replace(
-    '~ORGANIZATION_ID~',
-    organisationId,
+  const submissionGraph = namedNode(
+    env.GRAPH_TEMPLATE.replace('~ORGANIZATION_ID~', organisationId.value),
   );
-  const submissionInfo = await getSubmissionById(
-    uuid,
+  const submissionInfo = await getSubmissionInfo(
+    submission,
     submissionGraph,
     reqState?.canUseSudo,
   );
 
   if (submissionInfo) {
-    const {
-      submissionDocumentURI,
-      submissionURI,
-      formDataURI,
-      taskURI,
-      status,
-    } = submissionInfo;
-    if (status !== SENT_STATUS) {
-      if (taskURI)
-        await deleteHarvestedFiles(submissionURI, submissionGraph, canUseSudo);
-      if (formDataURI)
-        await deleteUploadedFiles(formDataURI, submissionGraph, canUseSudo);
-      if (submissionDocumentURI) {
+    const { submissionDocument, submission, formData, task, status } =
+      submissionInfo;
+    if (status.value !== SENT_STATUS.value) {
+      if (task)
+        await deleteHarvestedFiles(submission, submissionGraph, canUseSudo);
+      if (formData)
+        await deleteUploadedFiles(formData, submissionGraph, canUseSudo);
+      if (submissionDocument) {
         await deleteLinkedTTLFiles(
-          submissionDocumentURI,
+          submissionDocument,
           submissionGraph,
           canUseSudo,
         );
-        await deleteResource(
-          submissionDocumentURI,
-          submissionGraph,
-          canUseSudo,
-        );
+        await deleteResource(submissionDocument, submissionGraph, canUseSudo);
       }
-      if (formDataURI)
-        await deleteResource(formDataURI, submissionGraph, canUseSudo);
-      await deleteResource(submissionURI, submissionGraph, canUseSudo);
-      if (taskURI)
-        await deleteTaskwithJob(taskURI, submissionGraph, canUseSudo);
+      if (formData) await deleteResource(formData, submissionGraph, canUseSudo);
+      await deleteResource(submission, submissionGraph, canUseSudo);
+      if (task) await deleteTaskwithJob(task, submissionGraph, canUseSudo);
       return {
-        message: `Successfully deleted submission <${submissionURI}> and related files and resources.`,
+        message: `Successfully deleted submission ${rst.termToString(submission)} and related files and resources.`,
       };
     }
     const err = new Error(
-      `Could not delete submission <${submissionURI}>, has already been sent`,
+      `Could not delete submission ${rst.termToString(submission)}, has already been sent`,
     );
     err.status = 409;
     return {
-      uri: submissionDocumentURI,
       error: err,
     };
   }
-  const err = new Error(`Could not find a submission for uuid '${uuid}'`);
+  const err = new Error(
+    `Could not find a submission ${rst.termToString(submission)}`,
+  );
   err.status = 404;
   return {
     error: err,
   };
 }
 
+/**
+ * Retrieve the Submission for the given UUID.
+ * @public
+ * @async
+ * @function
+ * @param {Literal} uuid - UUID of a Submission.
+ * @param {NamedNode} graph - Optional graph in which to limit the search.
+ * @param {Boolean} canUseSudo - Indicates if sudo queries are allowed.
+ * @returns {NamedNode} Submission.
+ */
+export async function getSubmissionByUUID(uuid, graph, canUseSudo) {
+  const graphSparql = graph ? rst.termToString(graph) : '?g';
+  const infoQuery = `
+    ${env.SPARQL_PREFIXES}
+
+    SELECT DISTINCT ?submission
+    WHERE {
+      GRAPH ${graphSparql} {
+        ?submission
+          a meb:Submission ;
+          mu:uuid ${rst.termToString(uuid)} .
+      }
+    } LIMIT 1`;
+
+  const response = await (canUseSudo ? querySudo : query)(infoQuery);
+  const parser = new SparqlJsonParser();
+  const parsedResults = parser.parseJsonResults(response);
+  if (parsedResults.length > 0) {
+    const firstResult = parsedResults[0];
+    return firstResult.submission;
+  }
+}
+
+/**
+ * Get the Submission linked to the given SubmissionDocument.
+ *
+ * @public
+ * @async
+ * @function
+ * @param {NamedNode} submissionDocument - SubmissionDocument for wich to find
+ * the related Submission.
+ * @param {Boolean} canUseSudo - Indicates if sudo queries are allowed.
+ * @returns {NamedNode} Submission.
+ */
+export async function getSubmissionByDocument(submissionDocument, canUseSudo) {
+  const response = await (canUseSudo ? querySudo : query)(`
+    ${env.SPARQL_PREFIXES}
+
+    SELECT DISTINCT ?submission WHERE {
+      ?submission
+        dct:subject ${rst.termToString(submissionDocument)} .
+    }
+    LIMIT 1
+  `);
+  const parser = new SparqlJsonParser();
+  const parsedResults = parser.parseJsonResults(response);
+  return parsedResults[0]?.submission;
+}
+
 /*
  * Private
  */
 
-async function getUuid(uri, canUseSudo) {
-  const response = await (canUseSudo ? querySudo : query)(`
-    PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-    SELECT DISTINCT ?uuid WHERE {
-      ${rst.termToString(uri)} mu:uuid ?uuid .
-    } LIMIT 1
-  `);
-  const parser = new SparqlJsonParser();
-  const parsedResults = parser.parseJsonResults(response);
-  return parsedResults[0]?.uuid?.value;
-}
-
-async function deleteHarvestedFiles(submissionUri, graph, canUseSudo) {
-  const files = await getHarvestedFiles(submissionUri, graph, canUseSudo);
+/**
+ * Deletes the downloaded files related to that Submission (i.e. attachments,
+ * etc.).
+ */
+async function deleteHarvestedFiles(submission, graph, canUseSudo) {
+  const files = await getHarvestedFiles(submission, graph, canUseSudo);
   for (const file of files) {
     await deleteFile(file.physical, graph, canUseSudo);
     await deleteFile(file.harvestedPhysical, graph, canUseSudo);
@@ -142,11 +199,9 @@ async function deleteHarvestedFiles(submissionUri, graph, canUseSudo) {
 
 /**
  * Deletes all the linked files for the given resource.
- *
- * @param uri of the resource to delete the linked files for
  */
-async function deleteUploadedFiles(uri, graph, canUseSudo) {
-  const files = await getUploadedFiles(uri, graph, canUseSudo);
+async function deleteUploadedFiles(subject, graph, canUseSudo) {
+  const files = await getUploadedFiles(subject, graph, canUseSudo);
   for (const file of files) {
     await deleteFile(file.location, graph, canUseSudo);
     await deleteResource(file.file, graph, canUseSudo);
@@ -156,25 +211,28 @@ async function deleteUploadedFiles(uri, graph, canUseSudo) {
 
 /**
  * Deletes all the linked ttl files for the given URI (submission-document).
- *
- * @param uri resource (submission-document) to delete the linked ttl files for
  */
-async function deleteLinkedTTLFiles(uri, graph, canUseSudo) {
+async function deleteLinkedTTLFiles(submissionDocument, graph, canUseSudo) {
   const additionsFile = await getTTLResource(
-    uri,
+    submissionDocument,
     ADDITIONS_FILE_TYPE,
     graph,
     canUseSudo,
   );
   const removalsFile = await getTTLResource(
-    uri,
+    submissionDocument,
     REMOVALS_FILE_TYPE,
     graph,
     canUseSudo,
   );
-  const metaFile = await getTTLResource(uri, META_FILE_TYPE, graph, canUseSudo);
+  const metaFile = await getTTLResource(
+    submissionDocument,
+    META_FILE_TYPE,
+    graph,
+    canUseSudo,
+  );
   const sourceFile = await getTTLResource(
-    uri,
+    submissionDocument,
     FORM_DATA_FILE_TYPE,
     graph,
     canUseSudo,
@@ -200,18 +258,15 @@ async function deleteLinkedTTLFiles(uri, graph, canUseSudo) {
 
 /**
  * Retrieves all the uploaded files linked to the given resource (form-data).
- *
- * @param uri of the resource.
  */
-async function getUploadedFiles(uri, graph, canUseSudo) {
+async function getUploadedFiles(subject, graph, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
-    PREFIX dct: <http://purl.org/dc/terms/>
-    PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>
+    ${env.SPARQL_PREFIXES}
 
     SELECT DISTINCT ?file ?location ?parent
     WHERE {
-      GRAPH ${sparqlEscapeUri(graph)} {
-        ${sparqlEscapeUri(uri)} dct:hasPart ?file .
+      GRAPH ${rst.termToString(graph)} {
+        ${rst.termToString(subject)} dct:hasPart ?file .
         ?location nie:dataSource ?file .
         OPTIONAL {?parent nie:dataSource ?location .}
       }
@@ -221,30 +276,28 @@ async function getUploadedFiles(uri, graph, canUseSudo) {
   const parser = new SparqlJsonParser();
   const parsedResults = parser.parseJsonResults(response);
   if (parsedResults.length < 1)
-    console.log(`Could not find any uploaded files for resource <${uri}>`);
+    console.log(
+      `Could not find any uploaded files for resource ${rst.termToString(subject)}`,
+    );
   return parsedResults.map((binding) => {
     return {
-      file: binding?.file?.value,
-      location: binding?.location?.value,
+      file: binding?.file,
+      location: binding?.location,
     };
   });
 }
 
 /**
  * Retrieves all the uploaded files linked to the given resource (submission).
- *
- * @param uri of the resource.
  */
-async function getHarvestedFiles(submissionUri, graph, canUseSudo) {
+async function getHarvestedFiles(submission, graph, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
-    PREFIX dct: <http://purl.org/dc/terms/>
-    PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>
-    PREFIX nfo: <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#>
+    ${env.SPARQL_PREFIXES}
 
     SELECT DISTINCT ?remoteDataObject ?physical ?harvestedLogical ?harvestedPhysical
     WHERE {
-      GRAPH ${sparqlEscapeUri(graph)} {
-        ${sparqlEscapeUri(submissionUri)} nie:hasPart ?remoteDataObject .
+      GRAPH ${rst.termToString(graph)} {
+        ${rst.termToString(submission)} nie:hasPart ?remoteDataObject .
         ?remoteDataObject a nfo:RemoteDataObject .
         ?physical
           nie:dataSource ?remoteDataObject ;
@@ -265,36 +318,32 @@ async function getHarvestedFiles(submissionUri, graph, canUseSudo) {
   const parsedResults = parser.parseJsonResults(response);
   if (parsedResults.length < 1)
     console.log(
-      `Could not find any harvested files for resource <${submissionUri}>`,
+      `Could not find any harvested files for resource <${rst.termToString(submission)}>`,
     );
   return parsedResults.map((binding) => {
     return {
-      remoteDataObject: binding?.remoteDataObject?.value,
-      physical: binding?.physical?.value,
-      harvestedLogical: binding?.harvestedLogical?.value,
-      harvestedPhysical: binding?.harvestedPhysical?.value,
+      remoteDataObject: binding?.remoteDataObject,
+      physical: binding?.physical,
+      harvestedLogical: binding?.harvestedLogical,
+      harvestedPhysical: binding?.harvestedPhysical,
     };
   });
 }
 
 /**
- * Get the file resource in the triplestore of the given file type that is related to the given submission document
- *
- * @param {string} submissionDocument URI of the submitted document to get the related file for
- * @param {string} fileType URI of the type of the related file
+ * Get the file resource in the triplestore of the given file type that is
+ * related to the given submission document
  */
 async function getTTLResource(submissionDocument, fileType, graph, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
-    PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-    PREFIX dct: <http://purl.org/dc/terms/>
-    PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie#>
+    ${env.SPARQL_PREFIXES}
 
     SELECT DISTINCT ?logical ?physical
     WHERE {
-      GRAPH ${sparqlEscapeUri(graph)} {
-        ${sparqlEscapeUri(submissionDocument)} dct:source ?physical .
+      GRAPH ${rst.termToString(graph)} {
+        ${rst.termToString(submissionDocument)} dct:source ?physical .
         ?physical
-          dct:type ${sparqlEscapeUri(fileType)} ;
+          dct:type ${rst.termToString(fileType)} ;
           nie:dataSource ?logical .
       }
     } LIMIT 1
@@ -304,43 +353,43 @@ async function getTTLResource(submissionDocument, fileType, graph, canUseSudo) {
   const parsedResults = parser.parseJsonResults(response);
   if (parsedResults.length < 1) {
     console.log(
-      `Part of type ${fileType} for submission document ${submissionDocument} not found`,
+      `Part of type ${fileType.value} for submission document ${rst.termToString(submissionDocument)} not found`,
     );
     return;
   }
   return {
-    logical: parsedResults[0]?.logical?.value,
-    physical: parsedResults[0]?.physical?.value,
+    logical: parsedResults[0]?.logical,
+    physical: parsedResults[0]?.physical,
   };
 }
 
 /**
- * Delete submission resource
- *
- * @param {string} URI of the resource to delete the related files for
+ * Delete given resource and its triples.
  */
-async function deleteResource(uri, graph, canUseSudo) {
+async function deleteResource(subject, graph, canUseSudo) {
   return (canUseSudo ? updateSudo : update)(`
     DELETE {
-      GRAPH ${sparqlEscapeUri(graph)} {
-        ${sparqlEscapeUri(uri)} ?p ?o .
+      GRAPH ${rst.termToString(graph)} {
+        ${rst.termToString(subject)} ?p ?o .
       }
     }
     WHERE {
-      GRAPH ${sparqlEscapeUri(graph)} {
-        ${sparqlEscapeUri(uri)} ?p ?o .
+      GRAPH ${rst.termToString(graph)} {
+        ${rst.termToString(subject)} ?p ?o .
       }
     }
   `);
 }
 
-async function deleteTaskwithJob(taskUri, graph, canUseSudo) {
+/**
+ * Delete the given Task and related Job.
+ */
+async function deleteTaskwithJob(task, graph, canUseSudo) {
   return (canUseSudo ? updateSudo : update)(`
-    PREFIX dct: <http://purl.org/dc/terms/>
-    PREFIX task: <http://redpencil.data.gift/vocabularies/tasks/>
+    ${env.SPARQL_PREFIXES}
 
     DELETE {
-      GRAPH ${sparqlEscapeUri(graph)} {
+      GRAPH ${rst.termToString(graph)} {
         ?rc ?rp ?ro .
         ?ic ?ip ?io .
         ?hc2 ?hp2 ?ho2 .
@@ -350,8 +399,8 @@ async function deleteTaskwithJob(taskUri, graph, canUseSudo) {
         ?job ?jp ?jo .
       }
     } WHERE {
-      GRAPH ${sparqlEscapeUri(graph)} {
-        ${sparqlEscapeUri(taskUri)} dct:isPartOf ?job .
+      GRAPH ${rst.termToString(graph)} {
+        ${rst.termToString(task)} dct:isPartOf ?job .
         ?job ?jp ?jo .
         ?task
           dct:isPartOf ?job ;
@@ -382,28 +431,25 @@ async function deleteTaskwithJob(taskUri, graph, canUseSudo) {
   `);
 }
 
-async function getSubmissionById(submissionId, graph, canUseSudo) {
+/**
+ * Return an object with information and related subjects of the given
+ * submission.
+ */
+async function getSubmissionInfo(submission, graph, canUseSudo) {
   const infoQuery = `
-    PREFIX meb: <http://rdf.myexperiment.org/ontologies/base/>
-    PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-    PREFIX prov: <http://www.w3.org/ns/prov#>
-    PREFIX melding: <http://lblod.data.gift/vocabularies/automatische-melding/>
-    PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
-    PREFIX dct: <http://purl.org/dc/terms/>
-    PREFIX adms: <http://www.w3.org/ns/adms#>
-    PREFIX task: <http://redpencil.data.gift/vocabularies/tasks/>
-    PREFIX taskO: <http://lblod.data.gift/id/jobs/concept/TaskOperation/>
+    ${env.SPARQL_PREFIXES}
 
     SELECT DISTINCT ?submission ?formData ?submissionTask ?submissionDocument ?status
     WHERE {
-      GRAPH ${sparqlEscapeUri(graph)} {
-        ?submission a meb:Submission;
-           mu:uuid ${sparqlEscapeString(submissionId)};
-           adms:status ?status.
+      BIND (${rst.termToString(submission)} AS ?submission)
+      GRAPH ${rst.termToString(graph)} {
+        ?submission
+          a meb:Submission ;
+          adms:status ?status .
 
         OPTIONAL {
-          ?submission prov:generated ?formData.
-          ?formData a melding:FormData.
+          ?submission prov:generated ?formData .
+          ?formData a melding:FormData .
         }
 
         OPTIONAL {
@@ -411,16 +457,15 @@ async function getSubmissionById(submissionId, graph, canUseSudo) {
             a task:Task ;
             task:operation taskO:register ;
             dct:isPartOf ?job .
-          ?job prov:generated ?submission.
+          ?job prov:generated ?submission .
         }
 
         OPTIONAL {
-          ?submission dct:subject ?submissionDocument.
-          ?submissionDocument a ext:SubmissionDocument.
+          ?submission dct:subject ?submissionDocument .
+          ?submissionDocument a ext:SubmissionDocument .
         }
       }
-    } LIMIT 1
-  `;
+    } LIMIT 1`;
 
   const response = await (canUseSudo ? querySudo : query)(infoQuery);
   const parser = new SparqlJsonParser();
@@ -428,45 +473,30 @@ async function getSubmissionById(submissionId, graph, canUseSudo) {
   if (parsedResults.length > 0) {
     const firstResult = parsedResults[0];
     return {
-      submissionDocumentURI: firstResult?.submissionDocument?.value,
-      submissionURI: firstResult?.submission?.value,
-      formDataURI: firstResult?.formData?.value,
-      status: firstResult?.status?.value,
-      taskURI: firstResult?.submissionTask?.value,
+      submissionDocument: firstResult?.submissionDocument,
+      submission: firstResult?.submission,
+      formData: firstResult?.formData,
+      status: firstResult?.status,
+      task: firstResult?.submissionTask,
     };
   }
 }
 
-async function getSubmissionByDocumentUri(submissionDocumentUri, canUseSudo) {
+/**
+ * Retrieve the organisation UUID that is related to the Submission.
+ */
+async function getOrganisationIdFromSubmission(submission, canUseSudo) {
   const response = await (canUseSudo ? querySudo : query)(`
     ${env.SPARQL_PREFIXES}
 
-    SELECT DISTINCT ?submission WHERE {
-      ?submission
-        dct:subject ${rst.termToString(submissionDocumentUri)} .
-    }
-    LIMIT 1
-  `);
-  const parser = new SparqlJsonParser();
-  const parsedResults = parser.parseJsonResults(response);
-  return parsedResults[0]?.submission;
-}
-
-async function getOrganisationIdFromSubmission(submissionUuid, canUseSudo) {
-  const response = await (canUseSudo ? querySudo : query)(`
-    PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-    PREFIX prov: <http://www.w3.org/ns/prov#>
-    PREFIX pav:  <http://purl.org/pav/>
-
-    SELECT DISTINCT ?organisationId WHERE {
-      ?submission
-        mu:uuid ${sparqlEscapeString(submissionUuid)} ;
+    SELECT DISTINCT ?organisationId
+    WHERE {
+      ${rst.termToString(submission)}
         pav:createdBy ?bestuurseenheid .
       ?bestuurseenheid mu:uuid ?organisationId .
     }
-    LIMIT 1
-  `);
+    LIMIT 1`);
   const parser = new SparqlJsonParser();
   const parsedResults = parser.parseJsonResults(response);
-  return parsedResults[0]?.organisationId?.value;
+  return parsedResults[0]?.organisationId;
 }

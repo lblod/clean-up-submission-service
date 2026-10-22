@@ -1,5 +1,6 @@
 import { uuid } from 'mu';
 import { SubmissionRegistrationContext } from './SubmissionRegistrationContext';
+import { NAMESPACES as ns } from './env';
 import * as N3 from 'n3';
 const { namedNode } = N3.DataFactory;
 
@@ -7,12 +8,16 @@ export function enrichBodyForDelete(body) {
   if (!body['@context']) {
     body['@context'] = SubmissionRegistrationContext;
   }
-  const requestId = uuid();
-  if (!body['@id'])
-    body['@id'] =
-      `http://data.lblod.info/submission-delete-request/${requestId}`;
-  if (!body['@type'])
-    body['@type'] = 'http://data.lblod.info/submission-delete-request/Request';
+  if (!body['@type']) body['@type'] = ns.meb`Submission`.value;
+  // This is a trick. The requests should represent the Submission itself, but
+  // that would mean the user has to include
+  //   "@id": "http://uri/of/the/submission"
+  // and that is not so user friendly. So we allow the submission to be set
+  // with property `submission`, and we will make this correct ourselves.
+  if (body.submission) {
+    body['@id'] = body.submission;
+    delete body.submission;
+  }
   if (body.authentication) {
     body.authentication['@id'] =
       `http://data.lblod.info/authentications/${uuid()}`;

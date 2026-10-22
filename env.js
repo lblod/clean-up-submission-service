@@ -26,9 +26,18 @@ const PREFIXES = {
   wotSec: 'https://www.w3.org/2019/wot/security#',
   lblodAuth: 'http://lblod.data.gift/vocabularies/authentication/',
   pav: 'http://purl.org/pav/',
+  prov: 'http://www.w3.org/ns/prov#',
   session: 'http://mu.semte.ch/vocabularies/session/',
   oslc: 'http://open-services.net/ns/core#',
   dct: 'http://purl.org/dc/terms/',
+  meb: 'http://rdf.myexperiment.org/ontologies/base/',
+  melding: 'http://lblod.data.gift/vocabularies/automatische-melding/',
+  ext: 'http://mu.semte.ch/vocabularies/ext/',
+  adms: 'http://www.w3.org/ns/adms#',
+  task: 'http://redpencil.data.gift/vocabularies/tasks/',
+  taskO: 'http://lblod.data.gift/id/jobs/concept/TaskOperation/',
+  nie: 'http://www.semanticdesktop.org/ontologies/2007/01/19/nie#',
+  nfo: 'http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#',
 };
 
 export const NAMESPACES = (() => {
